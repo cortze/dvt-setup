@@ -6,28 +6,28 @@ networks:
 services:
   # EXECTION NODE -> Nethermind
   nethermind:
-    build:
-      context: ${NETHERMIND_PATH:-~/nethermind}
+    image: nethermind/nethermind:${NETHERMIND_VERSION:-latest}
     restart: unless-stopped
     init: true
     networks: [ cluster ]
     environment:
-      - DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/nethermind
+      - DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/ethereum/nethermind
     command: >-
       --config=${NETWORK} 
-      --datadir=/var/lib/nethermind 
-      --JsonRpc.JwtSecretFile=/var/lib/jwtsecret/jwt.hex 
+      --datadir=/tmp/ethereum/nethermind 
+      --JsonRpc.JwtSecretFile=/tmp/ethereum/jwtsecret/jwt.hex 
       --Sync.SnapSync=true 
       --JsonRpc.Enabled=true 
       --JsonRpc.Host=0.0.0.0 
       --JsonRpc.Port=8545 
+      --JsonRpc.EngineHost=0.0.0.0
       --JsonRpc.EnginePort=8551
       --HealthChecks.Enabled=true 
       --Metrics.Enabled=true 
       --Metrics.PushGatewayUrl=http://0.0.0.0:8645/metrics
     volumes:
-      - ${DATA_FOLDER:-./databases}/.nethermind:/var/lib/nethermind
-      - ./databases:/tmp/ethereum
+      - ${DATA_FOLDER:-./databases}/.nethermind:/tmp/ethereum/nethermind
+      - ${DATA_FOLDER:-./databases}/jwtsecret:/tmp/ethereum/jwtsecret
     ports:
       - "127.0.0.1:${NETHERMIND_API_PORT:-8545}:8545"    # JSON-RPC port
       - "127.0.0.1:${NETHERMIND_METRICS_PORT:-8645}:8645"    # Prometheus metrics port
@@ -35,32 +35,18 @@ services:
 
   # CONSENSUS NODE -> Nimbus 
   nimbus-trusted-sync:
-    build:
-      context: ${NIMBUS_PATH:-~/nimbus-eth2}/docker/dist
-      dockerfile: ./Dockerfile.amd64
-      args:
-        USER_ID: ${UID}
-        GROUP_ID: ${GID}
-    restart: unless-stopped
-    init: true
-    user: ${UID}:${GID}
+    image: statusim/nimbus-eth2:amd64-${NIMBUS_VERSION:-latest}
     networks: [ cluster ]
     command: >-
       --network=${NETWORK}
       trustedNodeSync
       --trusted-node-url="${CHECKPOINT_SYNC_URL:-}"
-      --data-dir=/var/lib/nimbus_beacon
+      --data-dir=/tmp/ethereum/data
     volumes:
-      - ${DATA_FOLDER:-./databases}/.nimbus:/var/lib/nimbus_beacon
-      - ./databases:/tmp/ethereum
+      - ${DATA_FOLDER:-./databases}/.nimbus:/tmp/ethereum/data
   
   nimbus:
-    build:
-      context: ${NIMBUS_PATH:-~/nimbus-eth2}/docker/dist
-      dockerfile: ./Dockerfile.amd64
-      args:
-        USER_ID: ${UID}
-        GROUP_ID: ${GID}
+    image: statusim/nimbus-eth2:amd64-${NIMBUS_VERSION:-latest}
     restart: unless-stopped
     init: true
     user: ${UID}:${GID}
@@ -71,24 +57,22 @@ services:
       - "${NIMBUS_P2P_PORT:-9000}:9000" # P2P port (the only one exposed to the network)
     command: >-
       --network=${NETWORK}
-      --data-dir=/var/lib/nimbus_beacon
+      --data-dir=/tmp/ethereum/data
       --web3-url=http://nethermind:8551
-      --jwt-secret=/var/lib/jwtsecret/jwt.hex
+      --jwt-secret=/tmp/ethereum/jwtsecret/jwt.hex
       --payload-builder=true
       --payload-builder-url=http://mev-boost:18550
       --rest
       --rest-address=0.0.0.0
       --rest-port=5052
       --metrics
+      --metrics-address=0.0.0.0
       --metrics-port=8008 
     volumes:
-      - ${DATA_FOLDER:-./databases}/.nimbus:/var/lib/nimbus_beacon
-      - ./databases:/tmp/ethereum
+      - ${DATA_FOLDER:-./databases}/.nimbus:/tmp/ethereum/data
+      - ${DATA_FOLDER:-./databases}/jwtsecret:/tmp/ethereum/jwtsecret
   
   mev-boost:
-    build:
-      context: ${MEV_BOOST_PATH:-~/mev-boost}
-      dockerfile: ./Dockerfile
     image: flashbots/mev-boost:${MEV_BOOST_VERSION:-latest}
     restart: unless-stopped
     user: ${UID}:${GID}
@@ -114,11 +98,13 @@ services:
       - '--config.file=/etc/prometheus/docker-prometheus.yml'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--web.listen-address=${PROMETHEUS_ADDRESS:-127.0.0.1:9090}'
+      - '--web.listen-address=0.0.0.0:9090'
       - '--storage.tsdb.retention.time=1y'
       - '--web.enable-remote-write-receiver'
-    network_mode: 'host'
+    networks: [ cluster ]
     restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_ADDRESS:-127.0.0.1:9090}:9090"
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION:-latest}
@@ -135,9 +121,10 @@ services:
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION:-latest}
     user: ${UID}:${GID}
+    networks: [ cluster ]
     init: true
     volumes:
-      - ./apps-data/grafana:/var/lib/grafana
+      - ./databases/.grafana:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
     ports:
       - "${GRAFANA_ADDRESS:-127.0.0.1:3030}:3030"
