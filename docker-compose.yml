@@ -24,7 +24,7 @@ services:
       --JsonRpc.EnginePort=8551
       --HealthChecks.Enabled=true 
       --Metrics.Enabled=true 
-      --Metrics.PushGatewayUrl=http://0.0.0.0:8645/metrics
+      --Metrics.ExposePort=8645
     volumes:
       - ${DATA_FOLDER:-./databases}/.nethermind:/tmp/ethereum/nethermind
       - ${DATA_FOLDER:-./databases}/jwtsecret:/tmp/ethereum/jwtsecret
@@ -93,7 +93,7 @@ services:
     user: ${UID}:${GID}
     volumes:
       - ./prometheus/:/etc/prometheus/
-      - ./apps-data/.prometheus:/prometheus/data
+      - ./databases/.prometheus:/prometheus/data
     command:
       - '--config.file=/etc/prometheus/docker-prometheus.yml'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
@@ -127,7 +127,7 @@ services:
       - ./databases/.grafana:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
     ports:
-      - "${GRAFANA_ADDRESS:-127.0.0.1:3030}:3030"
+      - "${GRAFANA_ADDRESS:-127.0.0.1:3000}:3000"
 
 
 
